@@ -5,6 +5,7 @@ Dependencies: numpy, matplotlib.
 """
 import argparse
 import csv
+import gzip
 import json
 from pathlib import Path
 
@@ -38,13 +39,11 @@ class BusLoopEnv:
         here = float(self.positions[i])
         ahead = min(
             (float(self.positions[j]) - here) % ROUTE_LENGTH
-            for j in range(N_BUSES)
-            if j != i
+            for j in range(N_BUSES) if j != i
         )
         behind = min(
             (here - float(self.positions[j])) % ROUTE_LENGTH
-            for j in range(N_BUSES)
-            if j != i
+            for j in range(N_BUSES) if j != i
         )
         return float(ahead), float(behind)
 
@@ -79,7 +78,7 @@ class BusLoopEnv:
 
 
 def train(episodes=12000, seed=1041, alpha=0.15, gamma=0.92):
-    """Train tabular Q-learning and return a mapping from state tuples to Q-values."""
+    """Train tabular Q-learning and return state tuples mapped to Q-values."""
     rng = np.random.default_rng(seed)
     q = {}
     for ep in range(episodes):
@@ -100,6 +99,17 @@ def train(episodes=12000, seed=1041, alpha=0.15, gamma=0.92):
                 reward + gamma * np.max(q[next_state]) - q[state][action_index]
             )
     return q
+
+
+def load_q_table(path):
+    """Load a saved Q-table in JSON or gzip-compressed JSON format."""
+    opener = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "rt", encoding="utf-8") as file:
+        serialized = json.load(file)
+    return {
+        tuple(int(value) for value in state.split(",")): np.asarray(values, dtype=float)
+        for state, values in serialized.items()
+    }
 
 
 def evaluate(q, episodes=160, seed=90000):
@@ -176,10 +186,19 @@ def save_outputs(q, results):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--episodes", type=int, default=12000)
+    parser.add_argument("--episodes", type=int, default=12000, help="training episodes")
     parser.add_argument("--eval-episodes", type=int, default=160)
+    parser.add_argument(
+        "--load-q-table",
+        default=None,
+        help="evaluate a saved q_table.json or q_table.json.gz without retraining",
+    )
     arguments = parser.parse_args()
-    q_table = train(arguments.episodes)
+    q_table = (
+        load_q_table(arguments.load_q_table)
+        if arguments.load_q_table
+        else train(arguments.episodes)
+    )
     evaluation = evaluate(q_table, arguments.eval_episodes)
     save_outputs(q_table, evaluation)
     print("Policy comparison (mean ± standard deviation across episodes)")
