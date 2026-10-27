@@ -5,7 +5,6 @@ Dependencies: numpy, matplotlib.
 """
 import argparse
 import csv
-import gzip
 import json
 from pathlib import Path
 
@@ -102,14 +101,24 @@ def train(episodes=12000, seed=1041, alpha=0.15, gamma=0.92):
 
 
 def load_q_table(path):
-    """Load a saved Q-table in JSON or gzip-compressed JSON format."""
-    opener = gzip.open if str(path).endswith(".gz") else open
-    with opener(path, "rt", encoding="utf-8") as file:
+    """Load a numeric Q-table or a saved greedy policy mapping from JSON.
+
+    In trained_policy.json, values are action indices (0, 1, 2); they are
+    expanded to one-hot Q-values so the existing argmax policy can use them.
+    Unseen states fall back to action 0.
+    """
+    with open(path, "r", encoding="utf-8") as file:
         serialized = json.load(file)
-    return {
-        tuple(int(value) for value in state.split(",")): np.asarray(values, dtype=float)
-        for state, values in serialized.items()
-    }
+    q = {}
+    for state, values in serialized.items():
+        key = tuple(int(value) for value in state.split(","))
+        if isinstance(values, int):
+            if values < 0 or values >= len(ACTIONS):
+                raise ValueError(f"Invalid action index {values} for state {state}")
+            q[key] = np.eye(len(ACTIONS), dtype=float)[values]
+        else:
+            q[key] = np.asarray(values, dtype=float)
+    return q
 
 
 def evaluate(q, episodes=160, seed=90000):
@@ -147,15 +156,16 @@ def evaluate(q, episodes=160, seed=90000):
     return results
 
 
-def save_outputs(q, results):
-    """Write the policy table, metrics, and comparison plots to the working folder."""
+def save_outputs(q, results, write_q_table=True):
+    """Write the policy table when training, plus metrics and comparison plots."""
     Path("figures").mkdir(exist_ok=True)
-    with open("q_table.json", "w", encoding="utf-8") as file:
-        json.dump(
-            {",".join(map(str, state)): values.tolist() for state, values in q.items()},
-            file,
-            indent=2,
-        )
+    if write_q_table:
+        with open("q_table.json", "w", encoding="utf-8") as file:
+            json.dump(
+                {",".join(map(str, state)): values.tolist() for state, values in q.items()},
+                file,
+                indent=2,
+            )
     with open("evaluation_results.csv", "w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow([
@@ -189,18 +199,13 @@ if __name__ == "__main__":
     parser.add_argument("--episodes", type=int, default=12000, help="training episodes")
     parser.add_argument("--eval-episodes", type=int, default=160)
     parser.add_argument(
-        "--load-q-table",
-        default=None,
-        help="evaluate a saved q_table.json or q_table.json.gz without retraining",
+        "--load-agent", "--load-q-table", dest="load_agent", default=None,
+        help="evaluate q_table.json or trained_policy.json without retraining",
     )
     arguments = parser.parse_args()
-    q_table = (
-        load_q_table(arguments.load_q_table)
-        if arguments.load_q_table
-        else train(arguments.episodes)
-    )
+    q_table = load_q_table(arguments.load_agent) if arguments.load_agent else train(arguments.episodes)
     evaluation = evaluate(q_table, arguments.eval_episodes)
-    save_outputs(q_table, evaluation)
+    save_outputs(q_table, evaluation, write_q_table=not bool(arguments.load_agent))
     print("Policy comparison (mean ± standard deviation across episodes)")
     for name, row in evaluation.items():
         means, stds = row["mean"], row["std"]
