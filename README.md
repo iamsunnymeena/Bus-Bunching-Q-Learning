@@ -64,5 +64,4 @@ In this reference run, Q-learning improves over no holding, but it does not outp
 ## Limitations
 This proof of concept does not model passenger-level waiting-time accumulation, calibrated dwell times, real traffic, timetables, or measured route data. Future work should add passenger waiting-time measures, evaluate multiple training seeds and reward settings, and calibrate the simulator against observed arrivals.
 
-## Academic integrity
-Both team members should inspect and understand the code and make their own meaningful changes before submission. The repository's commit history should reflect real development; no history is fabricated.
+
